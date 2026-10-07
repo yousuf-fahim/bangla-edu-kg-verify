@@ -49,6 +49,24 @@
   th,td { text-align:left; padding:5px 10px 5px 0; border-bottom:1px solid var(--line); }
   input[type=file] { font:inherit; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+
+  /* verdict mode */
+  .qn { color:var(--muted); font-size:13.5px; margin-bottom:12px; }
+  .qn span { text-transform:uppercase; letter-spacing:.05em; font-size:11px;
+             display:block; margin-bottom:3px; }
+  .claim { font-size:19px; line-height:1.85; word-break:break-word; }
+  .ev { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:20px; }
+  @media (max-width: 640px) { .ev { grid-template-columns:1fr; } }
+  .ev > div { border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+              background:var(--bg); font-size:14.5px; line-height:1.7; }
+  .ev h4 { margin:0 0 7px; font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+           font-weight:600; color:var(--muted); }
+  .ev .for h4 { color:var(--accent); }
+  .ev .against h4 { color:var(--bad); }
+  .ev .none { color:var(--muted); font-style:italic; }
+  .score { font-size:11.5px; color:var(--muted); margin-top:8px; font-variant-numeric:tabular-nums; }
+  .nil { margin-top:18px; padding:14px; border:1px dashed var(--line); border-radius:8px;
+         color:var(--muted); font-size:13.5px; }
 </style>
 </head>
 <body>
@@ -62,46 +80,27 @@
       <button id="resume" hidden>Resume saved session</button>
     </div>
     <div class="hint">
-      Expects a CSV with an id column plus the fields to judge. Built for
-      <code>quality_sample.csv</code> and <code>biology_all_triples.csv</code>; any CSV with
-      <code>subject</code>/<code>relation</code>/<code>object</code> works.
+      Two modes, picked automatically from the columns.
+      <b>Triple review</b> for files with <code>subject</code>/<code>relation</code>/<code>object</code>
+      (<code>review_200.csv</code>, <code>quality_sample.csv</code>) &mdash; exports a
+      <code>verdict</code> column.
+      <b>Verdict review</b> for files with a <code>claim</code> column
+      (<code>verdict_gold_sample.csv</code>) &mdash; exports a <code>gold</code> column.
     </div>
   </div>
 
   <div id="app" hidden>
     <div class="bar"><i id="fill"></i></div>
-    <div class="stats">
-      <span><b id="n">0</b> / <span id="total">0</span></span>
-      <span>correct <b id="c-ok">0</b></span>
-      <span>wrong relation <b id="c-rel">0</b></span>
-      <span>wrong <b id="c-no">0</b></span>
-      <span>skipped <b id="c-skip">0</b></span>
-      <span>precision so far <b id="prec">—</b></span>
-    </div>
+    <div class="stats" id="stats"></div>
 
-    <div class="card" id="card">
-      <div class="meta" id="meta"></div>
-      <div class="triple" id="triple"></div>
-      <div class="src" id="src"></div>
-    </div>
+    <div class="card" id="card"></div>
 
-    <div class="keys">
-      <button class="ok"  data-v="correct"><kbd>1</kbd>Correct</button>
-      <button class="rl"  data-v="wrong_relation"><kbd>2</kbd>Right fact, wrong relation</button>
-      <button class="no"  data-v="wrong"><kbd>3</kbd>Wrong / garbage</button>
-      <button data-v="skip"><kbd>S</kbd>Skip</button>
-      <button id="back"><kbd>←</kbd>Back</button>
-      <button id="export">Export CSV</button>
-    </div>
-    <div class="hint">
-      <b>2</b> means the subject and object are a real fact from the text but the relation
-      label is wrong — that distinction is what tells us whether to fix the vocabulary or
-      the extraction.
-    </div>
+    <div class="keys" id="keys"></div>
+    <div class="hint" id="hint"></div>
   </div>
 
   <div id="done" hidden class="done">
-    <h1>Done — <span id="dn"></span> judged</h1>
+    <h1>Done &mdash; <span id="dn"></span> judged</h1>
     <div id="summary"></div>
     <p><button id="export2">Export CSV</button> <button id="reset">Start over</button></p>
   </div>
@@ -133,14 +132,73 @@ function toCSV(rows, cols) {
   return [cols.join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))].join('\n');
 }
 
-const KEY = 'annotate.session.v1';
+// ---- modes ---------------------------------------------------------------
+// Each mode declares its labels, which CSV column receives them, and how the
+// end-of-run summary is computed.
+const MODES = {
+  triple: {
+    outCol: 'verdict',
+    labels: [
+      { v:'correct',        key:'1', cls:'ok', text:'Correct' },
+      { v:'wrong_relation', key:'2', cls:'rl', text:'Right fact, wrong relation' },
+      { v:'wrong',          key:'3', cls:'no', text:'Wrong / garbage' },
+      { v:'skip',           key:'s', cls:'',   text:'Skip' },
+    ],
+    hint: '<b>2</b> means the subject and object are a real fact from the text but the ' +
+          'relation label is wrong — that distinction is what tells us whether to fix ' +
+          'the vocabulary or the extraction.',
+    summary(c) {
+      const d = c.correct + c.wrong_relation + c.wrong;
+      return [
+        ['Correct', c.correct],
+        ['Right fact, wrong relation', c.wrong_relation],
+        ['Wrong / garbage', c.wrong],
+        ['Skipped', c.skip],
+        ['Precision (strict)', d ? (c.correct/d*100).toFixed(1)+'%' : '—'],
+        ['Precision (fact correct, ignoring relation)',
+         d ? ((c.correct+c.wrong_relation)/d*100).toFixed(1)+'%' : '—'],
+      ];
+    },
+  },
+  verdict: {
+    outCol: 'gold',
+    labels: [
+      { v:'supported',         key:'1', cls:'ok', text:'Supported' },
+      { v:'contradicted',      key:'2', cls:'no', text:'Contradicted' },
+      { v:'not_in_curriculum', key:'3', cls:'rl', text:'Not in curriculum' },
+      { v:'unsure',            key:'u', cls:'',   text:'Unsure' },
+      { v:'skip',              key:'s', cls:'',   text:'Skip' },
+    ],
+    hint: 'Judge the <b>claim</b> against the curriculum, not against the two facts shown ' +
+          '— those are only the strongest thing retrieval found each way. ' +
+          '<b>Unsure</b> is a real answer; it is reported separately, never folded into a ' +
+          'class. Press <kbd>D</kbd> to reveal the model’s scores if you want them, ' +
+          'but they are hidden by default so your labels stay independent.',
+    summary(c) {
+      const d = c.supported + c.contradicted + c.not_in_curriculum;
+      const pct = n => d ? (n/d*100).toFixed(1)+'%' : '—';
+      return [
+        ['Supported', `${c.supported} (${pct(c.supported)})`],
+        ['Contradicted', `${c.contradicted} (${pct(c.contradicted)})`],
+        ['Not in curriculum', `${c.not_in_curriculum} (${pct(c.not_in_curriculum)})`],
+        ['Unsure', c.unsure],
+        ['Skipped', c.skip],
+        ['Labelled (excl. unsure/skip)', d],
+      ];
+    },
+  },
+};
+
+const KEY = 'annotate.session.v2';
 let rows = [], idx = 0, verdicts = {}, idCol = 'triple_id', name = '';
+let mode = 'triple', showScores = false;
 
 const $ = id => document.getElementById(id);
+const M = () => MODES[mode];
 
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify({ name, idCol, rows, idx, verdicts })); }
-  catch (e) { /* private window or storage disabled — session just won't persist */ }
+  try { localStorage.setItem(KEY, JSON.stringify({ name, idCol, mode, rows, idx, verdicts })); }
+  catch (e) { /* private window or storage disabled - session just won't persist */ }
 }
 
 function load() {
@@ -151,53 +209,100 @@ function load() {
   return null;
 }
 
+function detectMode(r) {
+  return (r && r.claim !== undefined) ? 'verdict' : 'triple';
+}
+
 function start(data, fileName, saved) {
   rows = data; name = fileName;
-  idCol = ['triple_id','qid','id'].find(c => rows[0] && c in rows[0]) || null;
+  mode = (saved && saved.mode) || detectMode(rows[0]);
+  idCol = ['item_id','triple_id','qid','id'].find(c => rows[0] && c in rows[0]) || null;
   if (saved) { idx = saved.idx; verdicts = saved.verdicts; }
+  else { idx = 0; verdicts = {}; }   // opening a second file must not inherit the first's state
+  // pick up labels already in the file so a part-finished CSV resumes cleanly
+  const oc = M().outCol;
+  rows.forEach((r, i) => {
+    if (r[oc] && !verdicts[idOf(i)]) verdicts[idOf(i)] = r[oc];
+  });
   $('setup').hidden = true; $('app').hidden = false;
-  $('total').textContent = rows.length;
+  buildKeys();
+  $('hint').innerHTML = M().hint;
   render();
 }
 
+function buildKeys() {
+  $('keys').innerHTML = M().labels.map(l =>
+      `<button class="${l.cls}" data-v="${l.v}"><kbd>${l.key.toUpperCase()}</kbd>${l.text}</button>`
+    ).join('') +
+    '<button id="back"><kbd>←</kbd>Back</button><button id="export">Export CSV</button>';
+  $('keys').querySelectorAll('[data-v]').forEach(b =>
+    b.addEventListener('click', () => mark(b.dataset.v)));
+  $('back').addEventListener('click', () => { if (idx > 0) { idx--; save(); render(); } });
+  $('export').addEventListener('click', exportCSV);
+}
+
 function idOf(i) { return idCol ? rows[i][idCol] : String(i); }
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
+}
+
+function renderTriple(r) {
+  return `<div class="triple"><span class="ent">${esc(r.subject)}</span>` +
+         `<span class="rel">${esc(r.relation)}</span>` +
+         `<span class="ent">${esc(r.object)}</span></div>` +
+         (r.source_text || r.text
+           ? `<div class="src">${esc(r.source_text || r.text)}</div>` : '');
+}
+
+function renderVerdict(r) {
+  const fmt = (txt, score, kind, head) => {
+    const sc = showScores && score !== undefined && score !== ''
+      ? `<div class="score">NLI ${kind} ${Number(score).toFixed(3)}</div>` : '';
+    return `<div class="${kind === 'entail' ? 'for' : 'against'}"><h4>${head}</h4>` +
+           (txt ? esc(txt) : '<span class="none">nothing retrieved</span>') + sc + '</div>';
+  };
+  let out = '';
+  if (r.question) out += `<div class="qn"><span>Question asked</span>${esc(r.question)}</div>`;
+  out += `<div class="claim">${esc(r.claim)}</div>`;
+  const any = r.entail_fact || r.contra_fact;
+  if (any) {
+    out += '<div class="ev">' +
+      fmt(r.entail_fact, r.max_entail, 'entail', 'Curriculum fact that supports') +
+      fmt(r.contra_fact, r.max_contradict, 'contradict', 'Curriculum fact that contradicts') +
+      '</div>';
+  } else {
+    out += '<div class="nil">Retrieval linked no curriculum entity to this claim, so the ' +
+           'graph offered no evidence either way. That is itself the thing to judge: is ' +
+           'this claim genuinely outside the curriculum, or did linking miss it?</div>';
+  }
+  return out;
+}
 
 function render() {
   if (idx >= rows.length) return finish();
   const r = rows[idx];
   const bits = [];
+  if (idCol) bits.push(r[idCol]);
   if (r.chapter_no) bits.push('chapter ' + r.chapter_no);
   if (r.chapter_title) bits.push(r.chapter_title);
-  if (idCol) bits.push(r[idCol]);
-  $('meta').textContent = bits.join(' · ');
+  if (r.model) bits.push(r.model);
+  const prev = verdicts[idOf(idx)];
+  if (prev) bits.push('✓ ' + prev);
 
-  $('triple').innerHTML = r.subject !== undefined
-    ? `<span class="ent"></span><span class="rel"></span><span class="ent2"></span>`
-    : '';
-  if (r.subject !== undefined) {
-    $('triple').querySelector('.ent').textContent = r.subject;
-    $('triple').querySelector('.rel').textContent = r.relation ?? '';
-    $('triple').querySelector('.ent2').textContent = r.object ?? '';
-  } else {
-    $('triple').textContent = r.question_text || r.question || JSON.stringify(r);
-  }
-  $('src').textContent = r.source_text || r.text || '';
-  $('src').hidden = !$('src').textContent;
+  $('card').innerHTML = `<div class="meta">${esc(bits.join(' · '))}</div>` +
+    (mode === 'verdict' ? renderVerdict(r) : renderTriple(r));
 
-  const counts = tally();
-  $('n').textContent = counts.judged;
-  $('c-ok').textContent = counts.correct;
-  $('c-rel').textContent = counts.wrong_relation;
-  $('c-no').textContent = counts.wrong;
-  $('c-skip').textContent = counts.skip;
-  const denom = counts.correct + counts.wrong_relation + counts.wrong;
-  $('prec').textContent = denom ? Math.round(counts.correct / denom * 100) + '%' : '—';
+  const c = tally();
+  $('stats').innerHTML = `<span><b>${c.judged}</b> / ${rows.length}</span>` +
+    M().labels.map(l => `<span>${l.text.toLowerCase()} <b>${c[l.v] || 0}</b></span>`).join('');
   $('fill').style.width = (idx / rows.length * 100) + '%';
 }
 
 function tally() {
-  const c = { judged: 0, correct: 0, wrong_relation: 0, wrong: 0, skip: 0 };
-  for (const v of Object.values(verdicts)) { c.judged++; if (v in c) c[v]++; }
+  const c = { judged: 0 };
+  M().labels.forEach(l => c[l.v] = 0);
+  for (const v of Object.values(verdicts)) { if (!v) continue; c.judged++; if (v in c) c[v]++; }
   return c;
 }
 
@@ -210,20 +315,14 @@ function finish() {
   $('app').hidden = true; $('done').hidden = false;
   const c = tally();
   $('dn').textContent = c.judged;
-  const denom = c.correct + c.wrong_relation + c.wrong;
-  $('summary').innerHTML = `<table>
-    <tr><th>Correct</th><td>${c.correct}</td></tr>
-    <tr><th>Right fact, wrong relation</th><td>${c.wrong_relation}</td></tr>
-    <tr><th>Wrong / garbage</th><td>${c.wrong}</td></tr>
-    <tr><th>Skipped</th><td>${c.skip}</td></tr>
-    <tr><th>Precision (strict)</th><td>${denom ? (c.correct/denom*100).toFixed(1)+'%' : '—'}</td></tr>
-    <tr><th>Precision (fact correct, ignoring relation)</th><td>${denom ? ((c.correct+c.wrong_relation)/denom*100).toFixed(1)+'%' : '—'}</td></tr>
-  </table>`;
+  $('summary').innerHTML = '<table>' + M().summary(c)
+    .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('') + '</table>';
 }
 
 function exportCSV() {
-  const out = rows.map((r, i) => ({ ...r, verdict: verdicts[idOf(i)] || '' }));
-  const cols = [...Object.keys(rows[0]), 'verdict'].filter((c, i, a) => a.indexOf(c) === i);
+  const oc = M().outCol;
+  const out = rows.map((r, i) => ({ ...r, [oc]: verdicts[idOf(i)] || '' }));
+  const cols = [...Object.keys(rows[0]), oc].filter((c, i, a) => a.indexOf(c) === i);
   const blob = new Blob([toCSV(out, cols)], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -240,10 +339,6 @@ $('file').addEventListener('change', e => {
   fr.readAsText(f, 'utf-8');
 });
 
-document.querySelectorAll('[data-v]').forEach(b =>
-  b.addEventListener('click', () => mark(b.dataset.v)));
-$('back').addEventListener('click', () => { if (idx > 0) { idx--; save(); render(); } });
-$('export').addEventListener('click', exportCSV);
 $('export2').addEventListener('click', exportCSV);
 $('reset').addEventListener('click', () => {
   localStorage.removeItem(KEY); location.reload();
@@ -251,9 +346,13 @@ $('reset').addEventListener('click', () => {
 
 document.addEventListener('keydown', e => {
   if ($('app').hidden) return;
-  const map = { '1': 'correct', '2': 'wrong_relation', '3': 'wrong', 's': 'skip', 'S': 'skip' };
-  if (map[e.key]) { e.preventDefault(); mark(map[e.key]); }
-  else if (e.key === 'ArrowLeft') { e.preventDefault(); if (idx > 0) { idx--; save(); render(); } }
+  if (e.key === 'd' || e.key === 'D') {
+    e.preventDefault(); showScores = !showScores; return render();
+  }
+  const hit = M().labels.find(l => l.key === e.key.toLowerCase());
+  if (hit) { e.preventDefault(); return mark(hit.v); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); if (idx > 0) { idx--; save(); render(); } }
+  if (e.key === 'ArrowRight') { e.preventDefault(); if (idx < rows.length) { idx++; save(); render(); } }
 });
 
 const saved = load();
