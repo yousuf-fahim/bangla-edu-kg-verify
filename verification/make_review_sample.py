@@ -121,6 +121,18 @@ def main():
     sub.to_csv(s50, index=False, encoding="utf-8")
     print(f"wrote {s50.relative_to(ROOT)}  ({len(sub)} items, same strata)")
 
+    # Smallest unit that still answers something. Only the not_in_curriculum
+    # stratum: those are the fastest items to judge (is the claim about the
+    # syllabus at all?) and they test the one assumption nothing has checked -
+    # 59% of claims land there and nothing separates a real curriculum gap from
+    # an entity-linking miss. Too small for precision, big enough to tell
+    # "roughly working" from "badly broken".
+    nic = S[S.stratum == "not_in_curriculum"]
+    q = nic.sample(min(20, len(nic)), random_state=SEED).reset_index(drop=True)
+    pq = OUTDIR / "verdict_gold_quick20_notincurriculum.csv"
+    q.to_csv(pq, index=False, encoding="utf-8")
+    print(f"wrote {pq.relative_to(ROOT)}  ({len(q)} items, one stratum, ~10 min)")
+
     # second annotator: same items, reshuffled, system verdicts withheld so the
     # labels stay independent - that is the point of measuring kappa
     a2 = (S.drop(columns=rule_cols + ["stratum"])

@@ -31,6 +31,14 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+# Windows consoles default to cp1252, which cannot encode Bangla. Do this here
+# rather than relying on PYTHONIOENCODING, which `python -I` ignores.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT = ROOT / "eval" / "run_G" / "verdict_gold_sample.csv"
 RULES_CSV = ROOT / "eval" / "run_G" / "nli_claim_verdicts_rules.csv"
