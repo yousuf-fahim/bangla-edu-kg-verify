@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Source corpus - 64MB, re-downloadable from
+# data.mendeley.com/datasets/f3882ccczp (see notebooks/A_gpu_corpus_to_triples.ipynb)
+NCTB-SchoolText/
+
+# Kaggle credentials
+kaggle.json
+
+# Editor / OS
+.vscode/
+Thumbs.db
+desktop.ini

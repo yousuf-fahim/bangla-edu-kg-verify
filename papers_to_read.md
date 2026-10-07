@@ -2,6 +2,11 @@
 
 Check these off as you finish reading (not skimming) each one. Order goes: closest-to-your-proposal first, then supporting/contrast papers, then the QA-dataset cluster last (since those are more about "is there reusable data" than "is there overlapping method").
 
+**Before you start:** `papers/EXTRACTED_FACTS.md` has the citations, dataset sizes and
+quotable numbers already pulled out of each PDF, plus the specific questions each paper
+needs you to answer. It contains no analysis - that part is still yours. Use it to skip
+the excavation and go straight to the parts that matter for your positioning.
+
 ## Tier 1 — Direct positioning (read first, these define your novelty claim)
 - [ ] 1. BenHalluEval — Multi-Task Hallucination Evaluation Framework for Bengali (arxiv.org/abs/2605.31483)
 - [ ] 2. K12-KGraph — Curriculum-Aligned Knowledge Graph for Benchmarking, Chinese K12 (arxiv.org/abs/2605.09635)
