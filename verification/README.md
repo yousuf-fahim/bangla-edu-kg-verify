@@ -103,6 +103,12 @@ contain their own estimate.
 - the 200 labels, which is the only thing standing between this and an accuracy figure
 - a second annotator on the same items, for Cohen's kappa (BenHalluEval reports Fleiss
   0.911–0.926 with three annotators; that is the comparison a reviewer will make)
-- notebook B's mention edges still carry the old lemmatiser's output
-- whether to re-extract toward entity-to-entity triples, which decides whether
-  PGR-style graph reasoning is available at all
+- **`kg/figures/*` are now out of date.** `scripts/rebuild_graph.py` corrected the
+  mention edges (1,152 → 1,104, connectivity 62.4% → 60.5%), but the figures were
+  rendered on Kaggle from the old edges and still show the old numbers. Figures 2 and 3
+  need one notebook B run to catch up. The report already sent to faculty quotes 62%.
+- whether to re-extract toward entity-to-entity triples. `scripts/measure_triple_shape.py`
+  says only 6.7% of triples are entity-to-entity today, and 69% of the entities in that
+  subgraph appear in a single fact — so PGR-style `MATCH` reasoning is not available on
+  the current graph, and the relations carrying most of the content (`কাজ` at 1.1%,
+  `সংজ্ঞা` at 0%) are not entity-to-entity even in principle
